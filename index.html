@@ -90,6 +90,14 @@
       <label>Spike X position <span class="val" id="v_spikeX">0.5</span></label>
       <input type="range" id="p_spikeX" min="0.1" max="0.9" value="0.5" step="0.01">
     </div>
+    <div class="param">
+      <label>Spike jitter <span class="val" id="v_spikeJitter">0.7</span></label>
+      <input type="range" id="p_spikeJitter" min="0" max="1" value="0.7" step="0.01">
+    </div>
+    <div class="param">
+      <label>Spike breaks <span class="val" id="v_spikeBreaks">0.5</span></label>
+      <input type="range" id="p_spikeBreaks" min="0" max="1" value="0.5" step="0.01">
+    </div>
   </div>
 
   <div class="group">
@@ -205,7 +213,7 @@ resize();
 // Params
 const P = {
   lines: 150, points: 500, lineWidth: 0.7,
-  spikeHeight: 0.38, spikeWidth: 0.025, spikeRowSpread: 0.04, spikeX: 0.5,
+  spikeHeight: 0.38, spikeWidth: 0.025, spikeRowSpread: 0.04, spikeX: 0.5, spikeJitter: 0.7, spikeBreaks: 0.5,
   rowCenter: 0.45, topMargin: 0.08,
   terrainHeight: 0.12, terrainSpread: 0.15, noiseFreq: 3, octaves: 5,
   bumpHeight: 0.06, bumpSpread: 0.1,
@@ -242,11 +250,18 @@ function draw() {
   ctx.fillRect(0, 0, W, H);
 
   const { lines, points, lineWidth, spikeHeight, spikeWidth, spikeRowSpread, spikeX,
+          spikeJitter, spikeBreaks,
           rowCenter, topMargin, terrainHeight, terrainSpread, noiseFreq, octaves,
           bumpHeight, bumpSpread, speed } = P;
 
   const lineSpacing = H / (lines + 10);
   const startY = H * topMargin;
+
+  // Seeded random for consistent breaks per frame
+  function hash(a, b) {
+    let h = (a * 2654435761 ^ b * 2246822519) & 0x7fffffff;
+    return (h % 10000) / 10000;
+  }
 
   for (let i = 0; i < lines; i++) {
     const row = i / lines;
@@ -257,9 +272,11 @@ function draw() {
     const terrainEnv = Math.exp(-rowDist * rowDist / (2 * terrainSpread * terrainSpread));
     const maxTerrain = H * terrainHeight * terrainEnv;
     const maxSpike = H * spikeHeight * spikeRowEnv;
+    const bEnv = Math.exp(-rowDist * rowDist / (2 * bumpSpread * bumpSpread));
+    const alpha = 0.3 + 0.7 * Math.max(spikeRowEnv, terrainEnv * 0.5);
 
-    ctx.beginPath();
-
+    // Compute all points first
+    const xArr = [], yArr = [], spikeStrength = [];
     for (let j = 0; j <= points; j++) {
       const t = j / points;
       const x = t * W;
@@ -270,28 +287,82 @@ function draw() {
 
       const sw = spikeWidth + 0.005 * Math.sin(time * 0.5);
       const spike = Math.exp(-cx * cx / (2 * sw * sw));
-      const sh = spike * maxSpike * (1 + 0.15 * Math.sin(time * 0.7));
+      let sh = spike * maxSpike * (1 + 0.15 * Math.sin(time * 0.7));
 
-      const bEnv = Math.exp(-rowDist * rowDist / (2 * bumpSpread * bumpSpread));
+      // High-frequency jitter near spike
+      if (spike > 0.1 && spikeJitter > 0) {
+        const jitterAmt = spike * spikeJitter * maxSpike * 0.15;
+        const hfNoise = noise2d(t * 80 + time * 2, row * 50 + time * 0.5);
+        sh += hfNoise * jitterAmt;
+        // Additional crackle — very high freq
+        const crackle = noise2d(t * 200 + i * 7.3, row * 100 + time * 0.3);
+        sh += crackle * jitterAmt * 0.5 * spike;
+      }
+
       const p2 = Math.exp(-(cx - 0.35) * (cx - 0.35) / 0.015) * H * bumpHeight * bEnv;
       const p3 = Math.exp(-(cx + 0.4) * (cx + 0.4) / 0.02) * H * (bumpHeight * 0.83) * bEnv;
 
-      const displacement = terrain + sh + p2 + p3;
-      const y = baseY - displacement;
-
-      if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      const displacement = terrain + Math.max(0, sh) + p2 + p3;
+      xArr.push(x);
+      yArr.push(baseY - displacement);
+      spikeStrength.push(spike);
     }
 
+    // Draw line with breaks near spike
+    // First: black fill (full, no breaks) for proper occlusion
+    ctx.beginPath();
+    ctx.moveTo(xArr[0], yArr[0]);
+    for (let j = 1; j <= points; j++) ctx.lineTo(xArr[j], yArr[j]);
     ctx.lineTo(W, baseY + lineSpacing);
     ctx.lineTo(0, baseY + lineSpacing);
     ctx.closePath();
-
     ctx.fillStyle = '#000';
     ctx.fill();
-    const alpha = 0.3 + 0.7 * Math.max(spikeRowEnv, terrainEnv * 0.5);
+
+    // Then: stroke with gaps
     ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
     ctx.lineWidth = lineWidth;
-    ctx.stroke();
+
+    let inStroke = false;
+    for (let j = 0; j <= points; j++) {
+      const sp = spikeStrength[j];
+      // Determine if this segment should break
+      let shouldBreak = false;
+      if (sp > 0.15 && spikeBreaks > 0) {
+        // More breaks near the tip, probability based on spike strength
+        const breakProb = sp * spikeBreaks * 0.4;
+        // Use hash for deterministic breaks per line/point
+        const h = hash(i * 1000 + j, Math.floor(time * 5));
+        shouldBreak = h < breakProb;
+      }
+
+      if (shouldBreak) {
+        if (inStroke) { ctx.stroke(); inStroke = false; }
+      } else {
+        if (!inStroke) { ctx.beginPath(); ctx.moveTo(xArr[j], yArr[j]); inStroke = true; }
+        else { ctx.lineTo(xArr[j], yArr[j]); }
+      }
+    }
+    if (inStroke) ctx.stroke();
+
+    // Scattered fragments above the spike tip
+    if (spikeRowEnv > 0.3 && spikeBreaks > 0) {
+      const fragCount = Math.floor(spikeRowEnv * spikeBreaks * 8);
+      for (let f = 0; f < fragCount; f++) {
+        const fHash1 = hash(i * 100 + f, Math.floor(time * 3) + 999);
+        const fHash2 = hash(i * 100 + f + 500, Math.floor(time * 3) + 777);
+        const fHash3 = hash(i * 100 + f + 300, Math.floor(time * 4) + 555);
+        const fx = (spikeX + (fHash1 - 0.5) * 0.06) * W;
+        const fy = yArr[Math.floor(spikeX * points)] - fHash2 * maxSpike * 0.15 * spikeRowEnv;
+        const fLen = 1 + fHash3 * 6;
+        ctx.beginPath();
+        ctx.moveTo(fx, fy);
+        ctx.lineTo(fx + fLen, fy + (fHash1 - 0.5) * 2);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + fHash3 * 0.5})`;
+        ctx.lineWidth = 0.5 + fHash3 * 0.5;
+        ctx.stroke();
+      }
+    }
   }
 
   if (P.animate) time += speed;
