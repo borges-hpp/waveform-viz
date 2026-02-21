@@ -291,12 +291,12 @@ function draw() {
 
       // High-frequency jitter near spike
       if (spike > 0.1 && spikeJitter > 0) {
-        const jitterAmt = spike * spikeJitter * maxSpike * 0.15;
+        const jitterAmt = spike * spikeJitter * maxSpike * 0.35;
         const hfNoise = noise2d(t * 80 + time * 2, row * 50 + time * 0.5);
         sh += hfNoise * jitterAmt;
         // Additional crackle — very high freq
         const crackle = noise2d(t * 200 + i * 7.3, row * 100 + time * 0.3);
-        sh += crackle * jitterAmt * 0.5 * spike;
+        sh += crackle * jitterAmt * 0.7 * spike;
       }
 
       const p2 = Math.exp(-(cx - 0.35) * (cx - 0.35) / 0.015) * H * bumpHeight * bEnv;
