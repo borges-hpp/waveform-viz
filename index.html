@@ -7,7 +7,7 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: -apple-system, sans-serif; }
-  canvas { display: block; object-fit: cover; }
+  canvas { display: block; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
 
   #controls {
     position: fixed; top: 0; right: 0;
@@ -187,26 +187,17 @@ const ctx = canvas.getContext('2d');
 let W, H, time = 0;
 
 const ASPECT = 16 / 9;
+const RENDER_W = 1920;
+const RENDER_H = Math.round(RENDER_W / ASPECT); // 1080
 function resize() {
-  // Always render at a fixed aspect ratio, scale to cover the viewport
+  // Always render at fixed 1920x1080 internal resolution
+  W = canvas.width = RENDER_W;
+  H = canvas.height = RENDER_H;
+  // Scale via CSS to cover the viewport (like background-size: cover)
   const vw = window.innerWidth, vh = window.innerHeight;
-  const viewAspect = vw / vh;
-  if (viewAspect >= ASPECT) {
-    // Wider than target — fit to width, clip height (or exact fit)
-    W = canvas.width = vw;
-    H = canvas.height = Math.round(vw / ASPECT);
-  } else {
-    // Taller than target (phone portrait) — fit to height of aspect, clip sides
-    H = canvas.height = Math.round(vw / ASPECT); // keep width-based height
-    W = canvas.width = vw;
-    // Actually: render at fixed aspect, then scale canvas to cover viewport
-    W = canvas.width = Math.round(vh * ASPECT);
-    H = canvas.height = vh;
-  }
-  // Center the canvas over the viewport
-  canvas.style.position = 'absolute';
-  canvas.style.left = ((vw - W) / 2) + 'px';
-  canvas.style.top = ((vh - H) / 2) + 'px';
+  const scale = Math.max(vw / RENDER_W, vh / RENDER_H);
+  canvas.style.width = (RENDER_W * scale) + 'px';
+  canvas.style.height = (RENDER_H * scale) + 'px';
 }
 window.addEventListener('resize', resize);
 resize();
