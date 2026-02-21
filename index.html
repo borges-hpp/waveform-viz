@@ -275,26 +275,7 @@ function draw() {
     const bEnv = Math.exp(-rowDist * rowDist / (2 * bumpSpread * bumpSpread));
     const alpha = 0.3 + 0.7 * Math.max(spikeRowEnv, terrainEnv * 0.5);
 
-    // Compute displacement offset channels for smooth breaks
-    // Near the spike, segments smoothly drift to different Y offsets
-    // using low-freq noise to define "break regions" and their offset
-    const breakNoise = []; // per-point break offset
-    for (let j = 0; j <= points; j++) {
-      const t = j / points;
-      const cx = (t - spikeX) * 2;
-      const spike = Math.exp(-cx * cx / (2 * spikeWidth * spikeWidth));
-      if (spike > 0.08 && spikeBreaks > 0) {
-        // Low-freq noise defines which "band" this segment belongs to
-        const band = noise2d(t * 25 + i * 3.7, row * 20 + Math.floor(time * 2) * 0.1);
-        // The offset for this band — smooth, not jarring
-        const offset = noise2d(t * 8 + i * 5.1, row * 15 + Math.floor(time * 2) * 0.2);
-        breakNoise.push(offset * spike * spikeBreaks * maxSpike * 0.2 * Math.max(0, band));
-      } else {
-        breakNoise.push(0);
-      }
-    }
-
-    // Compute all points
+    // Compute all points first
     const xArr = [], yArr = [], spikeStrength = [];
     for (let j = 0; j <= points; j++) {
       const t = j / points;
@@ -310,15 +291,13 @@ function draw() {
 
       // High-frequency jitter near spike
       if (spike > 0.1 && spikeJitter > 0) {
-        const jitterAmt = spike * spikeJitter * maxSpike * 0.12;
-        const hfNoise = noise2d(t * 60 + time * 1.5, row * 40 + time * 0.4);
+        const jitterAmt = spike * spikeJitter * maxSpike * 0.15;
+        const hfNoise = noise2d(t * 80 + time * 2, row * 50 + time * 0.5);
         sh += hfNoise * jitterAmt;
-        const crackle = noise2d(t * 150 + i * 7.3, row * 80 + time * 0.3);
-        sh += crackle * jitterAmt * 0.4 * spike;
+        // Additional crackle — very high freq
+        const crackle = noise2d(t * 200 + i * 7.3, row * 100 + time * 0.3);
+        sh += crackle * jitterAmt * 0.5 * spike;
       }
-
-      // Smooth break offset
-      sh += breakNoise[j];
 
       const p2 = Math.exp(-(cx - 0.35) * (cx - 0.35) / 0.015) * H * bumpHeight * bEnv;
       const p3 = Math.exp(-(cx + 0.4) * (cx + 0.4) / 0.02) * H * (bumpHeight * 0.83) * bEnv;
@@ -329,7 +308,8 @@ function draw() {
       spikeStrength.push(spike);
     }
 
-    // Black fill for occlusion (continuous, no breaks)
+    // Draw line with breaks near spike
+    // First: black fill (full, no breaks) for proper occlusion
     ctx.beginPath();
     ctx.moveTo(xArr[0], yArr[0]);
     for (let j = 1; j <= points; j++) ctx.lineTo(xArr[j], yArr[j]);
@@ -339,48 +319,47 @@ function draw() {
     ctx.fillStyle = '#000';
     ctx.fill();
 
-    // Stroke: smooth line with opacity fade for "breaks"
-    // Instead of hard gaps, fade opacity where breaks occur
+    // Then: stroke with gaps
+    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
     ctx.lineWidth = lineWidth;
 
-    // Draw in small segments with varying alpha near spike
-    const segLen = 4; // points per segment
-    for (let j = 0; j < points; j += segLen) {
-      const end = Math.min(j + segLen + 1, points + 1);
-      const sp = spikeStrength[Math.min(j + Math.floor(segLen/2), points)];
-
-      let segAlpha = alpha;
-      if (sp > 0.1 && spikeBreaks > 0) {
-        // Use noise to create smooth opacity variation
-        const t = (j / points);
-        const fadeNoise = noise2d(t * 30 + i * 4.2, row * 25 + Math.floor(time * 3) * 0.15);
-        // Some segments dim, some stay bright
-        const dimming = Math.max(0, fadeNoise) * sp * spikeBreaks;
-        segAlpha = alpha * Math.max(0.05, 1 - dimming * 1.5);
+    let inStroke = false;
+    for (let j = 0; j <= points; j++) {
+      const sp = spikeStrength[j];
+      // Determine if this segment should break
+      let shouldBreak = false;
+      if (sp > 0.15 && spikeBreaks > 0) {
+        // More breaks near the tip, probability based on spike strength
+        const breakProb = sp * spikeBreaks * 0.4;
+        // Use hash for deterministic breaks per line/point
+        const h = hash(i * 1000 + j, Math.floor(time * 5));
+        shouldBreak = h < breakProb;
       }
 
-      ctx.beginPath();
-      ctx.moveTo(xArr[j], yArr[j]);
-      for (let k = j + 1; k < end; k++) ctx.lineTo(xArr[k], yArr[k]);
-      ctx.strokeStyle = `rgba(255, 255, 255, ${segAlpha})`;
-      ctx.stroke();
+      if (shouldBreak) {
+        if (inStroke) { ctx.stroke(); inStroke = false; }
+      } else {
+        if (!inStroke) { ctx.beginPath(); ctx.moveTo(xArr[j], yArr[j]); inStroke = true; }
+        else { ctx.lineTo(xArr[j], yArr[j]); }
+      }
     }
+    if (inStroke) ctx.stroke();
 
     // Scattered fragments above the spike tip
     if (spikeRowEnv > 0.3 && spikeBreaks > 0) {
-      const fragCount = Math.floor(spikeRowEnv * spikeBreaks * 6);
+      const fragCount = Math.floor(spikeRowEnv * spikeBreaks * 8);
       for (let f = 0; f < fragCount; f++) {
         const fHash1 = hash(i * 100 + f, Math.floor(time * 3) + 999);
         const fHash2 = hash(i * 100 + f + 500, Math.floor(time * 3) + 777);
         const fHash3 = hash(i * 100 + f + 300, Math.floor(time * 4) + 555);
-        const fx = (spikeX + (fHash1 - 0.5) * 0.05) * W;
-        const fy = yArr[Math.floor(spikeX * points)] - fHash2 * maxSpike * 0.12 * spikeRowEnv;
-        const fLen = 2 + fHash3 * 8;
+        const fx = (spikeX + (fHash1 - 0.5) * 0.06) * W;
+        const fy = yArr[Math.floor(spikeX * points)] - fHash2 * maxSpike * 0.15 * spikeRowEnv;
+        const fLen = 1 + fHash3 * 6;
         ctx.beginPath();
         ctx.moveTo(fx, fy);
-        ctx.lineTo(fx + fLen, fy + (fHash1 - 0.5) * 1.5);
-        ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 + fHash3 * 0.4})`;
-        ctx.lineWidth = 0.4 + fHash3 * 0.6;
+        ctx.lineTo(fx + fLen, fy + (fHash1 - 0.5) * 2);
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + fHash3 * 0.5})`;
+        ctx.lineWidth = 0.5 + fHash3 * 0.5;
         ctx.stroke();
       }
     }
