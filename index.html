@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waveform Terrain</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// Simplex-ish noise (permutation-based)
+const perm = new Uint8Array(512);
+const grad = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+(function initNoise() {
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+})();
+
+function noise2d(x, y) {
+  const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y);
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const aa = perm[perm[X] + Y], ab = perm[perm[X] + Y + 1];
+  const ba = perm[perm[X + 1] + Y], bb = perm[perm[X + 1] + Y + 1];
+  const dot = (g, dx, dy) => grad[g & 7][0] * dx + grad[g & 7][1] * dy;
+  const l1 = dot(aa, xf, yf) * (1 - u) + dot(ba, xf - 1, yf) * u;
+  const l2 = dot(ab, xf, yf - 1) * (1 - u) + dot(bb, xf - 1, yf - 1) * u;
+  return l1 * (1 - v) + l2 * v;
+}
+
+function fbm(x, y, octaves = 4) {
+  let val = 0, amp = 1, freq = 1, max = 0;
+  for (let i = 0; i < octaves; i++) {
+    val += noise2d(x * freq, y * freq) * amp;
+    max += amp; amp *= 0.5; freq *= 2;
+  }
+  return val / max;
+}
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H, time = 0;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function draw() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  const numLines = 120;
+  const lineSpacing = H / (numLines + 20);
+  const points = 400;
+  const startY = H * 0.15;
+
+  // Draw back to front (top to bottom = far to near)
+  for (let i = 0; i < numLines; i++) {
+    const row = i / numLines; // 0 = back (top), 1 = front (bottom)
+    const baseY = startY + i * lineSpacing;
+
+    // Amplitude: peaks in the middle rows, flat at front
+    const rowAmp = Math.pow(Math.sin(row * Math.PI), 1.2);
+    const maxDisplacement = H * 0.35 * rowAmp;
+
+    ctx.beginPath();
+
+    for (let j = 0; j <= points; j++) {
+      const t = j / points;
+      const x = t * W;
+
+      // Centered position (-1 to 1)
+      const cx = (t - 0.5) * 2;
+
+      // Terrain noise
+      const n = fbm(t * 3 + time * 0.15, row * 2.5 + time * 0.08, 5);
+      const terrain = n * maxDisplacement * 0.7;
+
+      // Central spike: narrow Gaussian
+      const spikeWidth = 0.03 + 0.01 * Math.sin(time * 0.5);
+      const spike = Math.exp(-cx * cx / (2 * spikeWidth * spikeWidth));
+      const spikeHeight = spike * maxDisplacement * 1.8 * (1 + 0.2 * Math.sin(time * 0.7));
+
+      // Secondary smaller peaks
+      const peak2 = Math.exp(-(cx - 0.3) * (cx - 0.3) / 0.01) * maxDisplacement * 0.3;
+      const peak3 = Math.exp(-(cx + 0.35) * (cx + 0.35) / 0.015) * maxDisplacement * 0.25;
+
+      const displacement = terrain + spikeHeight + peak2 + peak3;
+      const y = baseY - displacement;
+
+      if (j === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+
+    // Close path below to create occlusion fill
+    ctx.lineTo(W, baseY + lineSpacing);
+    ctx.lineTo(0, baseY + lineSpacing);
+    ctx.closePath();
+
+    ctx.fillStyle = '#000';
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.4 + 0.6 * rowAmp})`;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+
+  time += 0.008;
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
