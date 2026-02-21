@@ -6,14 +6,152 @@
 <title>Waveform Terrain</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+  body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: -apple-system, sans-serif; }
   canvas { display: block; }
+
+  #controls {
+    position: fixed; top: 0; right: 0;
+    width: 280px; max-height: 100vh; overflow-y: auto;
+    background: rgba(0,0,0,0.85); border-left: 1px solid #333;
+    padding: 16px; color: #ccc; font-size: 12px;
+    transform: translateX(100%); transition: transform 0.3s;
+    z-index: 10;
+  }
+  #controls.open { transform: translateX(0); }
+
+  #toggle {
+    position: fixed; top: 12px; right: 12px;
+    background: rgba(255,255,255,0.1); border: 1px solid #555;
+    color: #fff; padding: 6px 12px; cursor: pointer; font-size: 12px;
+    border-radius: 4px; z-index: 11;
+    transition: background 0.2s;
+  }
+  #toggle:hover { background: rgba(255,255,255,0.2); }
+
+  .group { margin-bottom: 14px; }
+  .group-title { color: #888; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .param { margin-bottom: 8px; }
+  .param label { display: flex; justify-content: space-between; margin-bottom: 2px; }
+  .param label span.val { color: #fff; font-variant-numeric: tabular-nums; }
+  .param input[type=range] {
+    width: 100%; height: 4px; -webkit-appearance: none; appearance: none;
+    background: #333; border-radius: 2px; outline: none;
+  }
+  .param input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: #fff; border-radius: 50%; cursor: pointer;
+  }
+  .param input[type=checkbox] { margin-right: 6px; }
+
+  #reset {
+    width: 100%; padding: 6px; margin-top: 8px;
+    background: #333; border: 1px solid #555; color: #ccc;
+    cursor: pointer; border-radius: 4px; font-size: 11px;
+  }
+  #reset:hover { background: #444; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<button id="toggle">⚙ Params</button>
+
+<div id="controls">
+  <div class="group">
+    <div class="group-title">Structure</div>
+    <div class="param">
+      <label>Lines <span class="val" id="v_lines">150</span></label>
+      <input type="range" id="p_lines" min="30" max="300" value="150" step="1">
+    </div>
+    <div class="param">
+      <label>Points per line <span class="val" id="v_points">500</span></label>
+      <input type="range" id="p_points" min="50" max="800" value="500" step="10">
+    </div>
+    <div class="param">
+      <label>Line width <span class="val" id="v_lineWidth">0.7</span></label>
+      <input type="range" id="p_lineWidth" min="0.2" max="3" value="0.7" step="0.1">
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">Spike</div>
+    <div class="param">
+      <label>Spike height <span class="val" id="v_spikeHeight">0.38</span></label>
+      <input type="range" id="p_spikeHeight" min="0" max="0.8" value="0.38" step="0.01">
+    </div>
+    <div class="param">
+      <label>Spike width (σ) <span class="val" id="v_spikeWidth">0.025</span></label>
+      <input type="range" id="p_spikeWidth" min="0.005" max="0.15" value="0.025" step="0.001">
+    </div>
+    <div class="param">
+      <label>Spike row spread <span class="val" id="v_spikeRowSpread">0.04</span></label>
+      <input type="range" id="p_spikeRowSpread" min="0.01" max="0.2" value="0.04" step="0.005">
+    </div>
+    <div class="param">
+      <label>Spike X position <span class="val" id="v_spikeX">0.5</span></label>
+      <input type="range" id="p_spikeX" min="0.1" max="0.9" value="0.5" step="0.01">
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">Vertical Position</div>
+    <div class="param">
+      <label>Center row <span class="val" id="v_rowCenter">0.45</span></label>
+      <input type="range" id="p_rowCenter" min="0.1" max="0.9" value="0.45" step="0.01">
+    </div>
+    <div class="param">
+      <label>Top margin <span class="val" id="v_topMargin">0.08</span></label>
+      <input type="range" id="p_topMargin" min="0" max="0.4" value="0.08" step="0.01">
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">Terrain</div>
+    <div class="param">
+      <label>Terrain height <span class="val" id="v_terrainHeight">0.12</span></label>
+      <input type="range" id="p_terrainHeight" min="0" max="0.4" value="0.12" step="0.01">
+    </div>
+    <div class="param">
+      <label>Terrain spread <span class="val" id="v_terrainSpread">0.15</span></label>
+      <input type="range" id="p_terrainSpread" min="0.02" max="0.5" value="0.15" step="0.01">
+    </div>
+    <div class="param">
+      <label>Noise frequency <span class="val" id="v_noiseFreq">3</span></label>
+      <input type="range" id="p_noiseFreq" min="0.5" max="10" value="3" step="0.1">
+    </div>
+    <div class="param">
+      <label>Octaves <span class="val" id="v_octaves">5</span></label>
+      <input type="range" id="p_octaves" min="1" max="8" value="5" step="1">
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">Secondary Peaks</div>
+    <div class="param">
+      <label>Bump height <span class="val" id="v_bumpHeight">0.06</span></label>
+      <input type="range" id="p_bumpHeight" min="0" max="0.2" value="0.06" step="0.005">
+    </div>
+    <div class="param">
+      <label>Bump spread <span class="val" id="v_bumpSpread">0.1</span></label>
+      <input type="range" id="p_bumpSpread" min="0.02" max="0.3" value="0.1" step="0.01">
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">Animation</div>
+    <div class="param">
+      <label>Speed <span class="val" id="v_speed">0.008</span></label>
+      <input type="range" id="p_speed" min="0" max="0.05" value="0.008" step="0.001">
+    </div>
+    <div class="param">
+      <label><input type="checkbox" id="p_animate" checked> Animate</label>
+    </div>
+  </div>
+
+  <button id="reset">Reset Defaults</button>
+</div>
+
 <script>
-// Simplex-ish noise (permutation-based)
+// Noise
 const perm = new Uint8Array(512);
 const grad = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
 (function initNoise() {
@@ -35,7 +173,7 @@ function noise2d(x, y) {
   return l1 * (1 - v) + l2 * v;
 }
 
-function fbm(x, y, octaves = 4) {
+function fbm(x, y, octaves) {
   let val = 0, amp = 1, freq = 1, max = 0;
   for (let i = 0; i < octaves; i++) {
     val += noise2d(x * freq, y * freq) * amp;
@@ -46,73 +184,92 @@ function fbm(x, y, octaves = 4) {
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-
 let W, H, time = 0;
 
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
 window.addEventListener('resize', resize);
 resize();
+
+// Params
+const P = {
+  lines: 150, points: 500, lineWidth: 0.7,
+  spikeHeight: 0.38, spikeWidth: 0.025, spikeRowSpread: 0.04, spikeX: 0.5,
+  rowCenter: 0.45, topMargin: 0.08,
+  terrainHeight: 0.12, terrainSpread: 0.15, noiseFreq: 3, octaves: 5,
+  bumpHeight: 0.06, bumpSpread: 0.1,
+  speed: 0.008, animate: true
+};
+const DEFAULTS = { ...P };
+
+// Wire up controls
+const ids = Object.keys(P).filter(k => k !== 'animate');
+ids.forEach(k => {
+  const el = document.getElementById('p_' + k);
+  const vEl = document.getElementById('v_' + k);
+  if (!el) return;
+  el.addEventListener('input', () => { P[k] = parseFloat(el.value); vEl.textContent = el.value; });
+});
+document.getElementById('p_animate').addEventListener('change', e => { P.animate = e.target.checked; });
+
+document.getElementById('toggle').addEventListener('click', () => {
+  document.getElementById('controls').classList.toggle('open');
+});
+
+document.getElementById('reset').addEventListener('click', () => {
+  Object.assign(P, DEFAULTS);
+  ids.forEach(k => {
+    const el = document.getElementById('p_' + k);
+    const vEl = document.getElementById('v_' + k);
+    if (el) { el.value = P[k]; vEl.textContent = P[k]; }
+  });
+  document.getElementById('p_animate').checked = true;
+});
 
 function draw() {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
 
-  const numLines = 150;
-  const lineSpacing = H / (numLines + 10);
-  const points = 500;
-  const startY = H * 0.08;
+  const { lines, points, lineWidth, spikeHeight, spikeWidth, spikeRowSpread, spikeX,
+          rowCenter, topMargin, terrainHeight, terrainSpread, noiseFreq, octaves,
+          bumpHeight, bumpSpread, speed } = P;
 
-  // Draw back to front (top to bottom = far to near)
-  for (let i = 0; i < numLines; i++) {
-    const row = i / numLines; // 0 = top, 1 = bottom
+  const lineSpacing = H / (lines + 10);
+  const startY = H * topMargin;
+
+  for (let i = 0; i < lines; i++) {
+    const row = i / lines;
     const baseY = startY + i * lineSpacing;
-
-    // Row distance from vertical center (0.45 = slightly above middle)
-    const rowCenter = 0.45;
     const rowDist = Math.abs(row - rowCenter);
 
-    // Spike only affects rows near the center — tight Gaussian falloff
-    const spikeRowEnv = Math.exp(-rowDist * rowDist / (2 * 0.04 * 0.04));
-
-    // Terrain amplitude: gentle everywhere, peaks near center
-    const terrainEnv = Math.exp(-rowDist * rowDist / (2 * 0.15 * 0.15));
-    const maxTerrain = H * 0.12 * terrainEnv;
-    const maxSpike = H * 0.38 * spikeRowEnv;
+    const spikeRowEnv = Math.exp(-rowDist * rowDist / (2 * spikeRowSpread * spikeRowSpread));
+    const terrainEnv = Math.exp(-rowDist * rowDist / (2 * terrainSpread * terrainSpread));
+    const maxTerrain = H * terrainHeight * terrainEnv;
+    const maxSpike = H * spikeHeight * spikeRowEnv;
 
     ctx.beginPath();
 
     for (let j = 0; j <= points; j++) {
       const t = j / points;
       const x = t * W;
+      const cx = (t - spikeX) * 2;
 
-      // Centered position (-1 to 1)
-      const cx = (t - 0.5) * 2;
-
-      // Terrain noise — gentle rolling hills
-      const n = fbm(t * 3 + time * 0.12, row * 3 + time * 0.06, 5);
+      const n = fbm(t * noiseFreq + time * 0.12, row * 3 + time * 0.06, octaves);
       const terrain = n * maxTerrain;
 
-      // Central spike: narrow Gaussian in x, only on middle rows
-      const spikeWidth = 0.025 + 0.005 * Math.sin(time * 0.5);
-      const spike = Math.exp(-cx * cx / (2 * spikeWidth * spikeWidth));
-      const spikeHeight = spike * maxSpike * (1 + 0.15 * Math.sin(time * 0.7));
+      const sw = spikeWidth + 0.005 * Math.sin(time * 0.5);
+      const spike = Math.exp(-cx * cx / (2 * sw * sw));
+      const sh = spike * maxSpike * (1 + 0.15 * Math.sin(time * 0.7));
 
-      // Gentle secondary bumps (also row-enveloped)
-      const bumpEnv = Math.exp(-rowDist * rowDist / (2 * 0.1 * 0.1));
-      const peak2 = Math.exp(-(cx - 0.35) * (cx - 0.35) / 0.015) * H * 0.06 * bumpEnv;
-      const peak3 = Math.exp(-(cx + 0.4) * (cx + 0.4) / 0.02) * H * 0.05 * bumpEnv;
+      const bEnv = Math.exp(-rowDist * rowDist / (2 * bumpSpread * bumpSpread));
+      const p2 = Math.exp(-(cx - 0.35) * (cx - 0.35) / 0.015) * H * bumpHeight * bEnv;
+      const p3 = Math.exp(-(cx + 0.4) * (cx + 0.4) / 0.02) * H * (bumpHeight * 0.83) * bEnv;
 
-      const displacement = terrain + spikeHeight + peak2 + peak3;
+      const displacement = terrain + sh + p2 + p3;
       const y = baseY - displacement;
 
-      if (j === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+      if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
 
-    // Close path below to create occlusion fill
     ctx.lineTo(W, baseY + lineSpacing);
     ctx.lineTo(0, baseY + lineSpacing);
     ctx.closePath();
@@ -121,11 +278,11 @@ function draw() {
     ctx.fill();
     const alpha = 0.3 + 0.7 * Math.max(spikeRowEnv, terrainEnv * 0.5);
     ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-    ctx.lineWidth = 0.7;
+    ctx.lineWidth = lineWidth;
     ctx.stroke();
   }
 
-  time += 0.008;
+  if (P.animate) time += speed;
   requestAnimationFrame(draw);
 }
 
