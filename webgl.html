@@ -132,7 +132,7 @@ function computeLine(i, time) {
     const t = j / POINTS;
     const cx = (t - 0.5) * 2;
 
-    const n = fbm(t * 3 + time * 0.12, row * 3 + time * 0.06, 5);
+    const n = (fbm(t * 3 + time * 0.12, row * 3 + time * 0.06, 5) + 1) * 0.5;
     const terrain = n * maxTerrain;
 
     const sw = 0.025 + 0.005 * Math.sin(time * 0.5);

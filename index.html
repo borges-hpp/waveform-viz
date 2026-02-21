@@ -265,7 +265,7 @@ function draw() {
       const x = t * W;
       const cx = (t - spikeX) * 2;
 
-      const n = fbm(t * noiseFreq + time * 0.12, row * 3 + time * 0.06, octaves);
+      const n = (fbm(t * noiseFreq + time * 0.12, row * 3 + time * 0.06, octaves) + 1) * 0.5;
       const terrain = n * maxTerrain;
 
       const sw = spikeWidth + 0.005 * Math.sin(time * 0.5);
