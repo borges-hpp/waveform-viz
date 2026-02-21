@@ -155,7 +155,10 @@
     </div>
   </div>
 
+  <button id="export">📋 Copy JSON</button>
+  <button id="import">📥 Load JSON</button>
   <button id="reset">Reset Defaults</button>
+  <textarea id="jsonArea" style="width:100%;height:60px;margin-top:6px;background:#1a1a1a;color:#0f0;border:1px solid #444;font-size:10px;font-family:monospace;padding:4px;border-radius:4px;display:none;resize:vertical;"></textarea>
 </div>
 
 <script>
@@ -243,6 +246,40 @@ document.getElementById('reset').addEventListener('click', () => {
     if (el) { el.value = P[k]; vEl.textContent = P[k]; }
   });
   document.getElementById('p_animate').checked = true;
+});
+
+document.getElementById('export').addEventListener('click', () => {
+  const json = JSON.stringify(P, null, 2);
+  const ta = document.getElementById('jsonArea');
+  ta.style.display = 'block';
+  ta.value = json;
+  navigator.clipboard.writeText(json).then(() => {
+    document.getElementById('export').textContent = '✅ Copied!';
+    setTimeout(() => { document.getElementById('export').textContent = '📋 Copy JSON'; }, 1500);
+  });
+});
+
+document.getElementById('import').addEventListener('click', () => {
+  const ta = document.getElementById('jsonArea');
+  ta.style.display = 'block';
+  ta.focus();
+  try {
+    const data = JSON.parse(ta.value);
+    Object.keys(data).forEach(k => {
+      if (k in P) {
+        P[k] = data[k];
+        const el = document.getElementById('p_' + k);
+        const vEl = document.getElementById('v_' + k);
+        if (el) { el.value = P[k]; if (vEl) vEl.textContent = P[k]; }
+      }
+    });
+    if ('animate' in data) document.getElementById('p_animate').checked = data.animate;
+    document.getElementById('import').textContent = '✅ Loaded!';
+    setTimeout(() => { document.getElementById('import').textContent = '📥 Load JSON'; }, 1500);
+  } catch(e) {
+    document.getElementById('import').textContent = '❌ Invalid JSON';
+    setTimeout(() => { document.getElementById('import').textContent = '📥 Load JSON'; }, 1500);
+  }
 });
 
 function draw() {
