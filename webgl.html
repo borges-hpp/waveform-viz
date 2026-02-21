@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waveform Terrain — WebGL</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+  canvas { display: block; position: absolute; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+if (!gl) { document.body.innerHTML = '<p style="color:#fff;padding:2em">WebGL not supported</p>'; }
+
+const ASPECT = 16 / 9;
+let W, H;
+function resize() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  if (vw / vh >= ASPECT) { W = vw; H = Math.round(vw / ASPECT); }
+  else { W = Math.round(vh * ASPECT); H = vh; }
+  canvas.width = W; canvas.height = H;
+  canvas.style.left = ((vw - W) / 2) + 'px';
+  canvas.style.top = ((vh - H) / 2) + 'px';
+  gl.viewport(0, 0, W, H);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Shaders
+const vsSource = `
+  attribute vec2 aPos;
+  void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
+`;
+
+const fsSource = `
+precision highp float;
+uniform vec2 uResolution;
+uniform float uTime;
+
+// Hash-based noise
+vec2 hash(vec2 p) {
+  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(dot(hash(i), f),
+                 dot(hash(i + vec2(1.0, 0.0)), f - vec2(1.0, 0.0)), u.x),
+             mix(dot(hash(i + vec2(0.0, 1.0)), f - vec2(0.0, 1.0)),
+                 dot(hash(i + vec2(1.0, 1.0)), f - vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p, int oct) {
+  float val = 0.0, amp = 1.0, tot = 0.0;
+  for (int i = 0; i < 8; i++) {
+    if (i >= oct) break;
+    val += noise(p) * amp;
+    tot += amp;
+    p *= 2.0; amp *= 0.5;
+  }
+  return val / tot;
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / uResolution;
+  float y = uv.y; // 0 = bottom, 1 = top
+  float x = uv.x;
+
+  // We draw lines as horizontal bands
+  float numLines = 180.0;
+  float lineIdx = floor(y * numLines);
+  float row = lineIdx / numLines; // 0 = bottom, 1 = top
+  // Flip: row 0 = front (bottom), row 1 = back (top)
+  float rowFlip = 1.0 - row;
+  float fracY = fract(y * numLines);
+
+  // Row envelope
+  float rowCenter = 0.55; // in flipped space
+  float rowDist = abs(rowFlip - rowCenter);
+
+  float spikeRowSpread = 0.06;
+  float spikeRowEnv = exp(-rowDist * rowDist / (2.0 * spikeRowSpread * spikeRowSpread));
+
+  float terrainSpread = 0.18;
+  float terrainEnv = exp(-rowDist * rowDist / (2.0 * terrainSpread * terrainSpread));
+
+  // Terrain
+  float t = uTime;
+  float n = fbm(vec2(x * 3.0 + t * 0.12, rowFlip * 3.0 + t * 0.06), 5);
+  float terrain = n * 0.12 * terrainEnv;
+
+  // Spike
+  float cx = (x - 0.5) * 2.0;
+  float sw = 0.025 + 0.005 * sin(t * 0.5);
+  float spike = exp(-cx * cx / (2.0 * sw * sw));
+  float spikeH = spike * 0.38 * spikeRowEnv * (1.0 + 0.15 * sin(t * 0.7));
+
+  // Bumps
+  float bumpEnv = exp(-rowDist * rowDist / (2.0 * 0.1 * 0.1));
+  float p2 = exp(-(cx - 0.35) * (cx - 0.35) / 0.015) * 0.06 * bumpEnv;
+  float p3 = exp(-(cx + 0.4) * (cx + 0.4) / 0.02) * 0.05 * bumpEnv;
+
+  float displacement = terrain + spikeH + p2 + p3;
+
+  // The "line" is visible when fracY is near the top of the band
+  // and the displacement crosses this row
+  float lineThickness = 0.03;
+
+  // Height of this row's line at this x
+  // displacement is in normalized units — fraction of total height
+  // The line should appear at: baseY + displacement
+  // baseY for this row = row (in screen space)
+  // A pixel sees the line if it's near baseY + displacement
+
+  // Actually let's think of it differently:
+  // For each pixel, check if any line passes through it
+  // Line i has base y = i/numLines, displaced up by displacement_i(x)
+  // Pixel at (x, y): is there a line i where |y - (base_i + disp_i)| < thickness?
+
+  // But that's expensive. Instead, for the line band this pixel is in,
+  // compute where the line is and check proximity.
+
+  float baseY = lineIdx / numLines;
+  float lineY = baseY + displacement;
+
+  // Also check line above (for occlusion — lines in front cover lines behind)
+  float lineAboveIdx = lineIdx - 1.0;
+  float rowAbove = 1.0 - (lineAboveIdx / numLines);
+  float rowDistAbove = abs(rowAbove - rowCenter);
+  float spikeRowEnvAbove = exp(-rowDistAbove * rowDistAbove / (2.0 * spikeRowSpread * spikeRowSpread));
+  float terrainEnvAbove = exp(-rowDistAbove * rowDistAbove / (2.0 * terrainSpread * terrainSpread));
+  float nAbove = fbm(vec2(x * 3.0 + t * 0.12, rowAbove * 3.0 + t * 0.06), 5);
+  float terrainAbove = nAbove * 0.12 * terrainEnvAbove;
+  float spikeHAbove = spike * 0.38 * spikeRowEnvAbove * (1.0 + 0.15 * sin(t * 0.7));
+  float bumpEnvAbove = exp(-rowDistAbove * rowDistAbove / (2.0 * 0.1 * 0.1));
+  float p2Above = exp(-(cx - 0.35) * (cx - 0.35) / 0.015) * 0.06 * bumpEnvAbove;
+  float p3Above = exp(-(cx + 0.4) * (cx + 0.4) / 0.02) * 0.05 * bumpEnvAbove;
+  float dispAbove = terrainAbove + spikeHAbove + p2Above + p3Above;
+  float lineYAbove = lineAboveIdx / numLines + dispAbove;
+
+  // Pixel y in screen
+  float pixY = y;
+
+  // Occlusion: if pixel is below the line in front (above in idx), hide it
+  bool occluded = pixY < lineYAbove;
+
+  // Line proximity
+  float dist = abs(pixY - lineY);
+  float lineAlpha = smoothstep(lineThickness, 0.0, dist);
+
+  // Alpha based on row envelope
+  float envAlpha = 0.3 + 0.7 * max(spikeRowEnv, terrainEnv * 0.5);
+
+  float finalAlpha = occluded ? 0.0 : lineAlpha * envAlpha;
+
+  // Slight glow
+  float glow = exp(-dist * dist / (0.003 * max(spikeRowEnv, 0.1))) * spikeRowEnv * 0.15;
+  if (occluded) glow = 0.0;
+
+  vec3 col = vec3(finalAlpha + glow);
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+function compileShader(src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(s)); return null;
+  }
+  return s;
+}
+
+const vs = compileShader(vsSource, gl.VERTEX_SHADER);
+const fs = compileShader(fsSource, gl.FRAGMENT_SHADER);
+const prog = gl.createProgram();
+gl.attachShader(prog, vs);
+gl.attachShader(prog, fs);
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+// Fullscreen quad
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+const uRes = gl.getUniformLocation(prog, 'uResolution');
+const uTime = gl.getUniformLocation(prog, 'uTime');
+
+let time = 0;
+function draw() {
+  gl.uniform2f(uRes, W, H);
+  gl.uniform1f(uTime, time);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  time += 0.008;
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
