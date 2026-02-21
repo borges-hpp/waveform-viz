@@ -60,19 +60,27 @@ function draw() {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
 
-  const numLines = 120;
-  const lineSpacing = H / (numLines + 20);
-  const points = 400;
-  const startY = H * 0.15;
+  const numLines = 150;
+  const lineSpacing = H / (numLines + 10);
+  const points = 500;
+  const startY = H * 0.08;
 
   // Draw back to front (top to bottom = far to near)
   for (let i = 0; i < numLines; i++) {
-    const row = i / numLines; // 0 = back (top), 1 = front (bottom)
+    const row = i / numLines; // 0 = top, 1 = bottom
     const baseY = startY + i * lineSpacing;
 
-    // Amplitude: peaks in the middle rows, flat at front
-    const rowAmp = Math.pow(Math.sin(row * Math.PI), 1.2);
-    const maxDisplacement = H * 0.35 * rowAmp;
+    // Row distance from vertical center (0.45 = slightly above middle)
+    const rowCenter = 0.45;
+    const rowDist = Math.abs(row - rowCenter);
+
+    // Spike only affects rows near the center — tight Gaussian falloff
+    const spikeRowEnv = Math.exp(-rowDist * rowDist / (2 * 0.04 * 0.04));
+
+    // Terrain amplitude: gentle everywhere, peaks near center
+    const terrainEnv = Math.exp(-rowDist * rowDist / (2 * 0.15 * 0.15));
+    const maxTerrain = H * 0.12 * terrainEnv;
+    const maxSpike = H * 0.38 * spikeRowEnv;
 
     ctx.beginPath();
 
@@ -83,18 +91,19 @@ function draw() {
       // Centered position (-1 to 1)
       const cx = (t - 0.5) * 2;
 
-      // Terrain noise
-      const n = fbm(t * 3 + time * 0.15, row * 2.5 + time * 0.08, 5);
-      const terrain = n * maxDisplacement * 0.7;
+      // Terrain noise — gentle rolling hills
+      const n = fbm(t * 3 + time * 0.12, row * 3 + time * 0.06, 5);
+      const terrain = n * maxTerrain;
 
-      // Central spike: narrow Gaussian
-      const spikeWidth = 0.03 + 0.01 * Math.sin(time * 0.5);
+      // Central spike: narrow Gaussian in x, only on middle rows
+      const spikeWidth = 0.025 + 0.005 * Math.sin(time * 0.5);
       const spike = Math.exp(-cx * cx / (2 * spikeWidth * spikeWidth));
-      const spikeHeight = spike * maxDisplacement * 1.8 * (1 + 0.2 * Math.sin(time * 0.7));
+      const spikeHeight = spike * maxSpike * (1 + 0.15 * Math.sin(time * 0.7));
 
-      // Secondary smaller peaks
-      const peak2 = Math.exp(-(cx - 0.3) * (cx - 0.3) / 0.01) * maxDisplacement * 0.3;
-      const peak3 = Math.exp(-(cx + 0.35) * (cx + 0.35) / 0.015) * maxDisplacement * 0.25;
+      // Gentle secondary bumps (also row-enveloped)
+      const bumpEnv = Math.exp(-rowDist * rowDist / (2 * 0.1 * 0.1));
+      const peak2 = Math.exp(-(cx - 0.35) * (cx - 0.35) / 0.015) * H * 0.06 * bumpEnv;
+      const peak3 = Math.exp(-(cx + 0.4) * (cx + 0.4) / 0.02) * H * 0.05 * bumpEnv;
 
       const displacement = terrain + spikeHeight + peak2 + peak3;
       const y = baseY - displacement;
@@ -110,8 +119,9 @@ function draw() {
 
     ctx.fillStyle = '#000';
     ctx.fill();
-    ctx.strokeStyle = `rgba(255, 255, 255, ${0.4 + 0.6 * rowAmp})`;
-    ctx.lineWidth = 0.8;
+    const alpha = 0.3 + 0.7 * Math.max(spikeRowEnv, terrainEnv * 0.5);
+    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+    ctx.lineWidth = 0.7;
     ctx.stroke();
   }
 
